@@ -242,15 +242,27 @@ Layout is time = H and freq = W, NHWC. All convolutions use TF `padding="same"`:
 
 - `idx = round(hz_to_midi(f) - 21)`.
 - Zero `[:, :min_idx]` and `[:, max_idx:]` of **both** onsets and frames.
-  Upstream does this in place.
+  Upstream does this in place, `max_freq` first.
+- The bounds are Python slice bounds: a negative index counts from the end
+  and everything is clamped to `[0, 88]`. A `max_freq` below A0 therefore
+  zeroes bins counted from the **top** (10 Hz gives index -18 and zeroes the
+  top 18 bins).
+- `0`, negative, NaN and infinite frequencies raise upstream (`int()` of
+  ±inf or NaN). The Go port uses 0 for None and rejects the others.
 
 ### `get_infered_onsets` (`n_diff = 2`)
 
 1. For n = 1, 2: `diff_n = frames - shift_down(frames, n)`, with the shift
    zero-filled.
 2. Take the element-wise min over n, clamp at ≥ 0, and zero the first 2 rows.
-3. Rescale by `max(onsets) / max(diff)`. NaN/zero behaviour must match NumPy.
-4. `onsets = max(onsets, diff)`.
+3. Rescale as `max(onsets) * diff / max(diff)`, in that order. NaN/zero
+   behaviour must match NumPy.
+4. `onsets = max(onsets, diff)` (`np.max` over the stacked pair, so NaN
+   propagates).
+
+If `max(diff)` is 0 (silent or constant frames, or fewer than 3 frames), the
+rescale is `0/0`. Every inferred onset is then NaN, there are no peaks and the
+onset pass emits nothing; the melodia pass still runs on the frames.
 
 The zero rows that upstream prepends are NumPy's default float64, so the
 differences, the rescale and the returned onsets are **float64**, although the
@@ -266,7 +278,9 @@ float32 frames.
 1. Peaks come from `scipy.signal.argrelmax(onsets, axis=0)`: strict `>` against
    both time neighbours, mode "clip". Edge rows are never peaks.
 2. Keep peaks with `onset >= onset_thresh`. Collect them row-major (time, then
-   freq), then **reverse** the list.
+   freq), then **reverse** the list. Upstream thresholds a matrix that is 0
+   everywhere except at the peaks, so with `onset_thresh <= 0` every non-peak
+   cell counts as an onset too.
 3. For each peak:
    - Skip it if `start >= n_frames - 1`.
    - Walk `i` from `start+1` while `i < n_frames-1 && k < energy_tol`. `k`
@@ -276,7 +290,12 @@ float32 frames.
    - Skip it if `i - start <= min_note_len`.
    - Zero `remaining_energy[start:i, f]`, and also at `f±1` within
      `[0, MAX_FREQ_IDX = 87]`.
-   - `amplitude = mean(frames[start:i, f])`, taken from the original frames.
+   - `amplitude = mean(frames[start:i, f])`, taken from the (constrained)
+     float32 frames. `np.mean` of float32 sums with NumPy's float32
+     **pairwise** summation (8 interleaved accumulators, blocks of 128) and
+     divides by an `np.intp` count, i.e. in float64, rounded back to float32.
+     A float64 or a sequential float32 sum changes dozens of fixture
+     amplitudes.
    - Emit `(start, i, f+21, amplitude)`.
 
 **Melodia pass** (when `melodia_trick`)
@@ -289,17 +308,39 @@ float32 frames.
 5. Skip the note if `i_end - i_start <= min_note_len`. Otherwise emit it with
    `amplitude = mean(frames[i_start:i_end, f])`.
 
+Edge behaviour of the melodia pass:
+
+- `np.max` propagates NaN and `NaN > frame_thresh` is false, so a NaN left in
+  `remaining_energy` after the onset pass ends the melodia pass before it
+  starts.
+- With `frame_thresh < 0` the loop never terminates (a zeroed cell stays
+  above the threshold). The Go port returns an error instead.
+- With `min_note_len < 0` it emits zero-length notes (`i_start == i_end`)
+  with a NaN amplitude (mean of an empty slice). The Go port reproduces this.
+- On an empty input upstream raises (`np.max` of an empty array) whenever
+  `infer_onsets` or `melodia_trick` is on. The Go port returns no notes.
+- The Go port does not rescan the matrix per iteration. It caches each row's
+  maximum and first argmax column in a tournament tree, which gives exactly
+  NumPy's first occurrence in the flattened array.
+
 Notes come out in emission order, unsorted. Preserve that order.
 
 ### Pitch bends (`get_pitch_bends`)
 
-- Window: `gaussian(51, std=5)`.
+- Window: `gaussian(51, std=5)`. The Go port hard-codes SciPy 1.18.1's
+  values: native `math.Exp` matches them, but other platforms are not
+  guaranteed to.
 - For each note:
   - `freq_idx = round(36*log2(midi_to_hz(pitch)/27.5))`, the contour bin.
+    It rounds to `3*(pitch-21)` for every pitch.
   - Take a window of ±25 bins, clipped to `[0, 264)`, with the Gaussian slice
-    offset to match.
+    offset to match. It is clipped below pitch 30 and above pitch 100, and
+    `pb_shift = min(freq_idx, 25)`, so a bend of 0 is always the note's own
+    bin. For pitches 21..108 both slices have the same length; outside that
+    range NumPy would fail to broadcast.
   - For each frame: `argmax(contour[t, window] * gaussian_slice) - pb_shift`,
-    in units of 1/3 semitone.
+    in units of 1/3 semitone. The product is float64, and the first maximum
+    (or the first NaN) wins.
 
 ### Time conversion (`model_frames_to_time`)
 
@@ -311,14 +352,27 @@ window_offset = (256/22050) * (172 - 43844/256) + 0.0018   # MAGIC_ALIGNMENT_OFF
 The floor uses 172 even though stitched windows are 142 frames. Port it
 verbatim.
 
+`frames_to_time` multiplies in integers and divides in float64. Python rounds
+every step of `window_offset` to float64 (`0x1.525d69b7026c5p-7`). In Go, an
+untyped constant expression is evaluated exactly and lands one ulp higher, and
+on arm64 `a - b*c` may be fused into an FMA. The port computes it in typed
+float64 steps and converts every product explicitly.
+
 ### MIDI (`note_events_to_midi`, pretty_midi)
 
 - `PrettyMIDI(initial_tempo=120)`, instrument program "Electric Piano 1" (4).
-- `velocity = round(127 * amplitude)`.
+- `velocity = round(127 * amplitude)`. The amplitude is an `np.float32`, so
+  under NEP 50 this is a **float32** multiplication, then half-to-even
+  rounding. 60 float32 amplitudes in `[0, 1]` round differently in float64
+  (for example `127 * 0x1.83060cp-7` is exactly 1.5 in float32, which gives
+  2), though no fixture note hits one.
 - Without `multiple_pitch_bends`:
   - Use one instrument.
-  - `drop_overlapping_pitch_bends` sorts the notes and removes the bends of any
-    notes that overlap in time.
+  - `drop_overlapping_pitch_bends` sorts the notes (Python tuple order:
+    start, end, pitch, amplitude, then the bends lists; a NaN amplitude is
+    neither less nor greater, so such ties keep their order without comparing
+    the bends) and removes the bends of any notes that overlap in time. A note that starts exactly where
+    another ends does not overlap it.
 - With `multiple_pitch_bends`: one instrument per pitch.
 - Bend events go at `linspace(start, end, len(bends))`, with value
   `round(b * 4096 / 3)` clipped to `[-8192, 8191]` (a ±2 semitone range).
@@ -363,4 +417,8 @@ soxr. They are checked by note-level tolerance only.
 - With `infer_onsets`, the onsets become float64 (see 5).
 - The onset and melodia passes use different end offsets (`i-k` versus `i-1-k`).
 - The 172-frame floor in the time conversion (see section 5).
-- `constrain_frequency` mutates its inputs in place.
+- `constrain_frequency` mutates its inputs in place, with Python slice
+  semantics for the bounds (see section 5).
+- `infer_onsets` turns silent or constant frames into all-NaN onsets (see
+  section 5).
+- `velocity` is computed in float32 (see section 5).
