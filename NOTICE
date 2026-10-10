@@ -14,5 +14,6 @@ Its NOTICE further credits Librosa (ISC), mir_eval (MIT), NumPy (BSD),
 pretty-midi (MIT), resampy (ISC), SciPy (BSD) and TensorFlow (Apache 2.0),
 whose behaviour the port reproduces.
 
-Test fixtures may include audio from the basic-pitch-ts repository
+The test fixtures in testdata/fixtures include an excerpt of
+test_data/vocal-da-80bpm.22050.wav from the basic-pitch-ts repository
 (Copyright 2022 Spotify AB, Apache License 2.0).

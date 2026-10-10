@@ -1,0 +1,244 @@
+{
+  "format_version": 1,
+  "clip": "vocal",
+  "description": "First 4 s of basic-pitch-ts test_data/vocal-da-80bpm.22050.wav.",
+  "source": {
+    "repository": "https://github.com/spotify/basic-pitch-ts",
+    "commit": "2d498f82b61c71898edf0e8dd661b99076676c8b",
+    "path": "test_data/vocal-da-80bpm.22050.wav",
+    "sha256": "b4d142de94b039cdd7ad90e2fabb3351aa294b82207ddd3b153ad1d3f5e285fa",
+    "license": "Apache-2.0, Copyright 2022 Spotify AB",
+    "excerpt": "samples [0, 88200) of 264821"
+  },
+  "upstream": {
+    "basic_pitch": "0.4.0",
+    "onnxruntime": "1.31.0",
+    "numpy": "2.5.3",
+    "scipy": "1.18.1",
+    "librosa": "1.0.0",
+    "pretty_midi": "0.2.11.post0",
+    "onnx": "1.23.2",
+    "python": "3.12.14"
+  },
+  "model": {
+    "path": "basic_pitch/saved_models/icassp_2022/nmp.onnx",
+    "sha256": "2c3c1d144bfa61ad236e92e169c13535c880469a12a047d4e73451f2c059a0ec"
+  },
+  "constants": {
+    "sample_rate": 22050,
+    "fft_hop": 256,
+    "window_samples": 43844,
+    "overlap_samples": 7680,
+    "hop_samples": 36164,
+    "frames_per_window": 172,
+    "overlap_frames": 30
+  },
+  "n_samples": 88200,
+  "n_windows": 3,
+  "n_frames": 344,
+  "wav": "audio.wav",
+  "arrays": {
+    "windows": {
+      "file": "windows.f32.gz",
+      "dtype": "float32",
+      "shape": [3, 43844],
+      "axes": ["window", "sample"],
+      "sha256": "338c18cbfa578b7bff970a5cb2dea98cdc8b8f6cafda166c75c91cf270f5893f"
+    },
+    "cqt": {
+      "file": "cqt.f32.gz",
+      "dtype": "float32",
+      "shape": [3, 172, 309],
+      "axes": ["window", "time", "freq"],
+      "sha256": "5d6f69f5e60302aadfc005cc95a64573cf3b9b8f701395e61d6766256a1fe295"
+    },
+    "normalized_log": {
+      "file": "normalized_log.f32.gz",
+      "dtype": "float32",
+      "shape": [3, 172, 309],
+      "axes": ["window", "time", "freq"],
+      "sha256": "8b6e3ad8efc1eba0cf59cd9097c63df0d943bf0bd4a451c5e0164ed83acace47"
+    },
+    "cqt_bn": {
+      "file": "cqt_bn.f32.gz",
+      "dtype": "float32",
+      "shape": [3, 172, 309],
+      "axes": ["window", "time", "freq"],
+      "sha256": "59505b4033e3455fd3180b5e58cc757a4c44efa24ba6fbf831e7396cbb2b0b2b"
+    },
+    "harmonic_stack": {
+      "file": "harmonic_stack.f32.gz",
+      "dtype": "float32",
+      "shape": [3, 172, 8, 264],
+      "axes": ["window", "time", "harmonic", "freq"],
+      "sha256": "f5bc899005ff0778f3cfbf497a6e91d102a4c443c41f873ba468cc0a53620cf4"
+    },
+    "contour": {
+      "file": "contour.f32.gz",
+      "dtype": "float32",
+      "shape": [3, 172, 264],
+      "axes": ["window", "time", "freq"],
+      "sha256": "9c47d045d54eb216acfd7575079271b80cfd5165d476565db4aabccb0e8d8e1d"
+    },
+    "note": {
+      "file": "note.f32.gz",
+      "dtype": "float32",
+      "shape": [3, 172, 88],
+      "axes": ["window", "time", "freq"],
+      "sha256": "73ff5c5f3c1bc3d2c661979b1817b6b22f73c10db0d4229fb49b614bb871512d"
+    },
+    "onset": {
+      "file": "onset.f32.gz",
+      "dtype": "float32",
+      "shape": [3, 172, 88],
+      "axes": ["window", "time", "freq"],
+      "sha256": "9ff9aaac9a57b37dbc39f8e220430241a27c4326335270a0dbb03395252d7fb9"
+    },
+    "unwrapped_contour": {
+      "file": "unwrapped_contour.f32.gz",
+      "dtype": "float32",
+      "shape": [344, 264],
+      "axes": ["time", "freq"],
+      "sha256": "2d8deec5c1a621c0fd6d48721f6989d6e37de7dd45917919f3f6c16fbc4598bb"
+    },
+    "unwrapped_note": {
+      "file": "unwrapped_note.f32.gz",
+      "dtype": "float32",
+      "shape": [344, 88],
+      "axes": ["time", "freq"],
+      "sha256": "7a41725025af4d09fab4e464d183d6db4530b09e72239674557a710b2b5c7da3"
+    },
+    "unwrapped_onset": {
+      "file": "unwrapped_onset.f32.gz",
+      "dtype": "float32",
+      "shape": [344, 88],
+      "axes": ["time", "freq"],
+      "sha256": "1c8b6365282f8966ebdff2a64ef87855e998ac625f6935ccc4bf7eb693e0ec49"
+    },
+    "frame_times": {
+      "file": "frame_times.f64",
+      "dtype": "float64",
+      "shape": [344],
+      "axes": ["time"],
+      "sha256": "b8da19a24c416071db349e5e9b7942afdc24817dd5feea39fc4fed50810df927"
+    }
+  },
+  "variants": {
+    "default": {
+      "options": {
+        "onset_threshold": 0.5,
+        "frame_threshold": 0.3,
+        "minimum_note_length_ms": 127.7,
+        "infer_onsets": true,
+        "melodia_trick": true,
+        "minimum_frequency": null,
+        "maximum_frequency": null,
+        "include_pitch_bends": true,
+        "multiple_pitch_bends": false,
+        "midi_tempo": 120,
+        "energy_tol": 11,
+        "min_note_len_frames": 11
+      },
+      "notes": "notes_default.json",
+      "csv": "notes_default.csv",
+      "midi": "notes_default.mid",
+      "midi_multiple_pitch_bends": "notes_default_multi.mid"
+    },
+    "no_melodia": {
+      "options": {
+        "onset_threshold": 0.5,
+        "frame_threshold": 0.3,
+        "minimum_note_length_ms": 127.7,
+        "infer_onsets": true,
+        "melodia_trick": false,
+        "minimum_frequency": null,
+        "maximum_frequency": null,
+        "include_pitch_bends": true,
+        "multiple_pitch_bends": false,
+        "midi_tempo": 120,
+        "energy_tol": 11,
+        "min_note_len_frames": 11
+      },
+      "notes": "notes_no_melodia.json",
+      "csv": "notes_no_melodia.csv",
+      "midi": "notes_no_melodia.mid",
+      "midi_multiple_pitch_bends": "notes_no_melodia_multi.mid"
+    },
+    "no_infer_onsets": {
+      "options": {
+        "onset_threshold": 0.5,
+        "frame_threshold": 0.3,
+        "minimum_note_length_ms": 127.7,
+        "infer_onsets": false,
+        "melodia_trick": true,
+        "minimum_frequency": null,
+        "maximum_frequency": null,
+        "include_pitch_bends": true,
+        "multiple_pitch_bends": false,
+        "midi_tempo": 120,
+        "energy_tol": 11,
+        "min_note_len_frames": 11
+      },
+      "notes": "notes_no_infer_onsets.json",
+      "csv": "notes_no_infer_onsets.csv",
+      "midi": "notes_no_infer_onsets.mid",
+      "midi_multiple_pitch_bends": "notes_no_infer_onsets_multi.mid"
+    },
+    "freq_range": {
+      "options": {
+        "onset_threshold": 0.5,
+        "frame_threshold": 0.3,
+        "minimum_note_length_ms": 127.7,
+        "infer_onsets": true,
+        "melodia_trick": true,
+        "minimum_frequency": 100.0,
+        "maximum_frequency": 1000.0,
+        "include_pitch_bends": true,
+        "multiple_pitch_bends": false,
+        "midi_tempo": 120,
+        "energy_tol": 11,
+        "min_note_len_frames": 11
+      },
+      "notes": "notes_freq_range.json",
+      "csv": "notes_freq_range.csv",
+      "midi": "notes_freq_range.mid",
+      "midi_multiple_pitch_bends": "notes_freq_range_multi.mid"
+    },
+    "low_thresholds": {
+      "options": {
+        "onset_threshold": 0.3,
+        "frame_threshold": 0.2,
+        "minimum_note_length_ms": 127.7,
+        "infer_onsets": true,
+        "melodia_trick": true,
+        "minimum_frequency": null,
+        "maximum_frequency": null,
+        "include_pitch_bends": true,
+        "multiple_pitch_bends": false,
+        "midi_tempo": 120,
+        "energy_tol": 11,
+        "min_note_len_frames": 11
+      },
+      "notes": "notes_low_thresholds.json",
+      "csv": "notes_low_thresholds.csv",
+      "midi": "notes_low_thresholds.mid",
+      "midi_multiple_pitch_bends": "notes_low_thresholds_multi.mid"
+    }
+  },
+  "checks": {
+    "model_vs_extended_graph": 0.0,
+    "normalized_log_numpy": 1.7881393432617188e-07,
+    "cqt_bn_numpy": 0.0,
+    "harmonic_stack_equals_numpy_exactly": true,
+    "cqt_bn_scale": 2.480741024017334,
+    "cqt_bn_offset": -0.8769183158874512,
+    "silent_windows": [],
+    "n_frames_v0_4_0_rule": 344,
+    "n_frames_main_rule": 346,
+    "n_notes_default": 8,
+    "n_notes_no_melodia": 7,
+    "n_notes_no_infer_onsets": 8,
+    "n_notes_freq_range": 8,
+    "n_notes_low_thresholds": 8
+  }
+}
