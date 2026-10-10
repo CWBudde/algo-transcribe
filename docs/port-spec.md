@@ -85,7 +85,9 @@ The saved model takes raw audio. The CQT is part of the graph.
 - Kernel length is `l = ceil(Q*22050/f_k)`. It is centred in `n_fft = 256` at
   `start = ceil(128 - l/2) - (l % 2)`.
 - Each kernel is scipy periodic `hann(l) * exp(i*2*pi*f*n/22050)` for
-  `n ∈ [floor(-l/2), l/2)`. It is divided by `l`, then L1-normalised.
+  `n` in `np.r_[-l//2 : l//2]`, that is `n ∈ [floor(-l/2), floor(l/2))`: `l`
+  values, starting one sample earlier than symmetric for odd `l`. It is divided
+  by `l`, then L1-normalised.
 
 **Each octave**
 
@@ -110,20 +112,47 @@ The saved model takes raw audio. The CQT is part of the graph.
 
 **ONNX cross-check.** The ONNX file stores the real and imaginary kernels as
 [36,1,1,256], the low-pass as [1,1,1,256] and the sqrt-length factors as
-[309,1,1]. Generated kernels must match them.
+[309,1,1]. Generated kernels must match them. `basicpitch/weights.bin` carries
+them as `cqt/kernel_real` and `cqt/kernel_imag` [36,256], `cqt/lowpass` [256]
+and `cqt/sqrt_lengths` [309].
+
+What the ONNX graph shows (checked when the weights were extracted, PLAN 1.2):
+
+- The kernels are float32 and match the formulas above to 1e-9 absolute, the
+  low-pass to 7e-9 and the sqrt-length factors to 6e-8 relative. No constant
+  folding has altered them.
+- The periodic Hann window is exactly 0 at its first sample. So each kernel
+  row is 0 at `start`, and its non-zero support is `[start+1, start+l)`.
+- The low-pass taps are exactly symmetric (`h[n] == h[255-n]` bit for bit) and
+  sum to 0.99977926, not 1.
+- The imaginary kernel stores `+imag(exp(...))`. The graph applies the sign as
+  a `Neg` node after each imaginary `Conv`, so the real kernel is identified as
+  the one whose `Conv` output is not negated.
+- The graph has 32 `Conv` nodes: 18 CQT convolutions (real and imaginary for
+  each of the 9 octaves, strides 256 down to 1), 8 low-pass convolutions
+  (stride 2) and the 6 model layers of section 4. The CQT and low-pass
+  convolutions have all-zero bias initializers.
+- The reflect padding of 128 is a `Pad` with `mode=reflect`. Before every
+  low-pass the signal is zero-padded by 127 on each side.
+- The sqrt-length factors multiply the real and imaginary parts before the
+  magnitude (`ReduceSum` of squares, then `Sqrt`). Because the factors are
+  positive, this is equivalent to scaling the magnitude.
 
 ### 3.2 NormalizedLog (`layers/signal.py`)
 
-- `p = 10*log10(mag² + 1e-10)`. The graph computes `log10` as
-  `ln(x) * 0.43429446` in float32.
+- `p = 10*log10(mag² + 1e-10)`. The ONNX graph computes this as
+  `10 * (ln(mag² + 1e-10) * 0.43429446)` in float32, and the min and max reduce
+  over the time and frequency axes together.
 - Subtract the minimum over the **whole window**, then divide by the maximum of
   the result. Division by zero yields 0 (`div_no_nan`).
 - The scaling is per 2 s window, so results depend on window boundaries.
 
 ### 3.3 BatchNorm on the CQT (1 channel, inference)
 
-Folded, this is `y = x * 2.480741 + (-0.876918)`. Read the exact values from
-the ONNX Mul/Add constants instead of hard-coding them.
+Folded, this is `y = x * 2.480741 + (-0.8769183)`. The ONNX graph holds it as
+a `Mul` and an `Add` with one-element float32 constants. The embedded weights
+carry them as `batch_normalization/scale` and `batch_normalization/offset`;
+read them from there instead of hard-coding them.
 
 ### 3.4 Harmonic stacking (`nn.py` `HarmonicStacking`)
 
@@ -167,8 +196,37 @@ Layout is time = H and freq = W, NHWC. All convolutions use TF `padding="same"`:
   [32,8,5,5], [1,33,3,3].
 - ONNX input is `serving_default_input_2:0`, shape (batch, 43844, 1).
 - ONNX outputs: `StatefulPartitionedCall:0` is contour, `:1` is note and `:2`
-  is onset.
+  is onset. The graph lists them in the order `:2`, `:1`, `:0`.
 - Map initializers to layers through the Conv nodes' inputs, not by name order.
+
+**What the ONNX graph adds** (checked when the weights were extracted, PLAN 1.2):
+
+- The BatchNorms after conv2d_1 and conv2d_4 are already folded into those
+  layers' ONNX kernels and biases. tf2onnx emits each layer as a single `Conv`
+  followed directly by `Relu`, with no BatchNorm parameters left in the graph.
+  Use the ONNX kernel and bias as they are; do not fold again.
+- As a result, the six layers hold 16,700 parameters (kernels and biases):
+  7,496 + 201 + 1,600 + 673 + 6,432 + 298. The 16,782 Keras trainable
+  parameters are these plus the BatchNorm gamma and beta: 2 for the CQT
+  BatchNorm, which survives as the scale and offset of section 3.3, and 80 for
+  the 8- and 32-channel BatchNorms, which are folded away.
+- The explicit `pads` attributes, `[t_begin, f_begin, t_end, f_end]`, are
+  conv2d_1 `[1,19,1,19]`, contours-reduced `[2,2,2,2]`, conv2d_2 `[3,2,3,2]`,
+  conv2d_3 `[3,1,3,1]`, conv2d_4 `[2,1,2,1]` and conv2d_5 `[1,1,1,1]`. These
+  are the TF "same" values above. All dilations are 1 and all groups are 1.
+- In the concat that feeds conv2d_5, the note (post-sigmoid) is channel 0 and
+  the 32 conv2d_4 channels are 1..32.
+- conv2d_1 and conv2d_4 read the same tensor: the harmonic stack, transposed to
+  NCHW. conv2d_2 reads the contour graph output (`StatefulPartitionedCall:0`)
+  reshaped back to NCHW.
+- Initializer names are unreliable. tf2onnx merges the names of the ops that
+  share a constant. For example, conv2d_4's bias is named after `re_lu_3`,
+  `batch_normalization_3`, conv2d_2 and conv2d_4, and the zero bias of the
+  low-pass convolutions is called `model_1/conv2d_5/Conv2D`. The kernels are
+  `const_fold_opt__NNN`.
+- `basicpitch/weights.bin` stores the kernels in HWIO
+  (`hwio[h][w][i][o] = oihw[o][i][h][w]`) as `<layer>/kernel` and the biases as
+  `<layer>/bias`.
 
 ## 5. Note creation (`note_creation.py`)
 

@@ -10,3 +10,7 @@ All notable changes to this project are documented in this file.
   `Conv2D` (TF `padding="same"`, strides, HWIO weights, im2col plus blocked
   GEMM, row-steppable `ForwardRows`), `ReLU`, `Sigmoid`, `ConcatChannels`
   and `FoldBatchNorm`.
+- `internal/onnx`: dependency-free ONNX protobuf reader.
+- `basicpitch`: embedded basic-pitch v0.4.0 weights (`weights.bin`, HWIO
+  kernels, CQT constants), generated from `testdata/nmp.onnx` by
+  `internal/cmd/extractweights` via `go generate`.
