@@ -40,3 +40,27 @@ type noteEvent struct {
 	Bends []int
 }
 
+// modelOutputToNotes is the note-event part of upstream model_output_to_notes
+// (the MIDI file is written elsewhere): output_to_notes_polyphonic, then
+// get_pitch_bends when includePitchBends is set (otherwise every Bends is
+// nil, upstream's None), then the conversion of the frame indices to seconds
+// with model_frames_to_time. contours is row-major (nFrames, 264); frames
+// and onsets are row-major (nFrames, 88) and are constrained in place, see
+// noteDecoder.decode. The events come out in upstream's emission order.
+func (d *noteDecoder) modelOutputToNotes(contours, frames, onsets []float32, nFrames int, p noteParams,
+	includePitchBends bool,
+) ([]noteEvent, error) {
+	notes, err := d.decode(frames, onsets, nFrames, p, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if includePitchBends {
+		err = getPitchBends(contours, nFrames, notes)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return frameNotesToEvents(notes, nFrames)
+}
