@@ -141,6 +141,11 @@ Layout is time = H and freq = W, NHWC. All convolutions use TF `padding="same"`:
 - Stride-1 odd kernels pad `(k-1)/2` on each side.
 - With stride 3 on frequency (264 → 88), TF "same" pads `total = max((out-1)*s + k - in, 0)`,
   with `pad_before = total/2` (floor) and the remainder after.
+- For 264 → 88 this is `total = k - 3`. The two stride-3 layers therefore pad
+  **symmetrically**: 2/2 for conv2d_2 (k=7) and 1/1 for conv2d_4 (k=5). The
+  floor rule would only matter for an even kernel (k=4 pads 0/1, k=6 pads
+  1/2). `nn.Conv2D` implements the general rule and tests the asymmetric
+  cases.
 
 | #   | Layer            | Input                                | Kernel (t×f), stride | Channels | Then              | Output                |
 | --- | ---------------- | ------------------------------------ | -------------------- | -------- | ----------------- | --------------------- |
