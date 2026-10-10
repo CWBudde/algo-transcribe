@@ -626,3 +626,32 @@ func TestDecodeWAV(t *testing.T) {
 		})
 	}
 }
+
+func TestDecodeStrictTrailingData(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		raw  string
+		ok   bool
+	}{
+		{"single object", `{"a":1}`, true},
+		{"trailing whitespace", "{\"a\":1}\n \t", true},
+		{"trailing bracket", `{"a":1}]`, false},
+		{"trailing brace", `{"a":1}}`, false},
+		{"second value", `{"a":1}{"a":2}`, false},
+		{"trailing garbage", `{"a":1}x`, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var v struct{ A int }
+
+			err := decodeStrict([]byte(tc.raw), &v)
+			if (err == nil) != tc.ok {
+				t.Fatalf("decodeStrict(%q) error = %v, want ok = %v", tc.raw, err, tc.ok)
+			}
+		})
+	}
+}

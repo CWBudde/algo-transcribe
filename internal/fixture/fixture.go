@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -282,7 +283,13 @@ func decodeStrict(raw []byte, v any) error {
 		return err
 	}
 
-	if dec.More() {
+	// dec.More is no EOF check at the top level: it reports false for a
+	// trailing ']' or '}'. Only io.EOF on a second decode proves the input
+	// held exactly one value.
+	var extra json.RawMessage
+
+	err = dec.Decode(&extra)
+	if !errors.Is(err, io.EOF) {
 		return errors.New("trailing data after JSON value")
 	}
 
