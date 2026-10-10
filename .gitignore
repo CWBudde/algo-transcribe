@@ -26,6 +26,7 @@ coverage.html
 
 # Python fixture generator
 scripts/fixtures/.venv/
+scripts/fixtures/.cache/
 __pycache__/
 
 # AI agents

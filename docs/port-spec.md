@@ -48,9 +48,13 @@ Upstream files, all at `https://raw.githubusercontent.com/spotify/basic-pitch/ma
    - Drop `n_olap = 15` frames from the start and the end of every window,
      leaving 142 frames.
    - Concatenate the windows.
-   - Trim to `int(n_expected_windows * 142)` frames, where
-     `n_expected_windows = original_len / 36164` is a float division.
+   - Trim to `int(floor(original_len * (86 / 22050)))` frames (v0.4.0,
+     `ANNOTATIONS_FPS / AUDIO_SAMPLE_RATE` with the integer FPS 86).
    - The trim length uses the **original** (unpadded) length.
+   - Upstream `main` changed this after v0.4.0 to `int(original_len / 36164 * 142)`
+     (a float division). The pinned reference is v0.4.0, and the fixtures follow
+     it: the synth clip (110,250 samples) has 430 frames, not 432, and the vocal
+     clip (88,200 samples) 344, not 346. The manifests record both counts.
 
 ## 3. Front end (in-graph, `models.py` `get_cqt`)
 
@@ -110,7 +114,8 @@ The saved model takes raw audio. The CQT is part of the graph.
 
 ### 3.2 NormalizedLog (`layers/signal.py`)
 
-- `p = 10*log10(mag² + 1e-10)`.
+- `p = 10*log10(mag² + 1e-10)`. The graph computes `log10` as
+  `ln(x) * 0.43429446` in float32.
 - Subtract the minimum over the **whole window**, then divide by the maximum of
   the result. Division by zero yields 0 (`div_no_nan`).
 - The scaling is per 2 s window, so results depend on window boundaries.
@@ -147,8 +152,11 @@ Layout is time = H and freq = W, NHWC. All convolutions use TF `padding="same"`:
 | 6   | concat           | [note (post-sigmoid), 5] on channels |                      | 33       |                   | (172,88,33)           |
 | 7   | conv2d_5         | 6                                    | 3×3, 1               | 33→1     | sigmoid           | **onset** (172,88)    |
 
-- `models.py` has a first contour conv (32 filters, 5×5) commented out
-  ("unintentionally skipped when training"). It is **not** part of the model.
+- `models.py` has a first contour conv (32 filters, 5×5) that is **not** part
+  of the model. In v0.4.0 it is still in the source, but its output is
+  overwritten (the next conv reads the harmonic stack, not its result), so it
+  never reaches the graph; upstream `main` later commented it out
+  ("unintentionally skipped when training").
 - There are 16,782 trainable parameters.
 - ONNX Conv weights are OIHW: [8,8,3,39], [1,8,5,5], [32,1,7,7], [1,32,7,3],
   [32,8,5,5], [1,33,3,3].
@@ -180,6 +188,13 @@ Layout is time = H and freq = W, NHWC. All convolutions use TF `padding="same"`:
 2. Take the element-wise min over n, clamp at ≥ 0, and zero the first 2 rows.
 3. Rescale by `max(onsets) / max(diff)`. NaN/zero behaviour must match NumPy.
 4. `onsets = max(onsets, diff)`.
+
+The zero rows that upstream prepends are NumPy's default float64, so the
+differences, the rescale and the returned onsets are **float64**, although the
+model outputs are float32. With `infer_onsets` the peak picking and the
+threshold comparison therefore run in float64. `remaining_energy` is a float64
+copy of the frames as well, while `amplitude` is the float32 mean of the
+float32 frames.
 
 ### `output_to_notes_polyphonic`
 
@@ -247,16 +262,20 @@ verbatim.
 - Times are in seconds. The Go writer uses `cwbudde/midi` (PPQ 480) at 120 BPM
   and must reproduce the same **times**, not the same ticks.
 
-### CSV (`note_events_to_csv`)
+### CSV (`inference.save_note_events`)
 
-The columns are `start_time_s, end_time_s, pitch_midi, velocity`, followed by
-the pitch bends. Match the upstream header and number formatting.
+The header is `start_time_s,end_time_s,pitch_midi,velocity,pitch_bend`. Each row
+holds the start and end time, the pitch, `round(127 * amplitude)` and then every
+pitch bend as its own column. Times use Python's shortest round-trip `repr`
+of the float64 value (for example `3.3913972789115645`), written by
+`csv.writer` with `\r\n` line ends. Match it byte for byte.
 
 ## 6. Parity policy
 
 **Fixtures.** Golden data comes from `scripts/fixtures` (pinned `uv` project,
-basic-pitch 0.4.0, onnxruntime) and is committed under `testdata/`. Go tests
-never run Python.
+basic-pitch 0.4.0, onnxruntime) and is committed under `testdata/fixtures/`.
+Load it with `internal/fixture`. The format is described in
+`testdata/fixtures/README.md`. Go tests never run Python.
 
 **Tolerances**
 
@@ -274,9 +293,11 @@ soxr. They are checked by note-level tolerance only.
 ## 7. Known upstream quirks to keep
 
 - Normalisation is per window (see 3.2).
-- The output length rule `int(len/36164*142)` is the current upstream rule; the
-  older rule, used by basic-pitch-ts fixtures, gives 1032 frames instead of 1039
-  for 264,821 samples.
+- The output length rule of v0.4.0 is `floor(len * 86 / 22050)` (see 2). Upstream
+  `main` later changed it to `int(len/36164*142)`. For 264,821 samples the v0.4.0
+  rule (also used by the basic-pitch-ts fixtures) gives 1032 frames and the
+  `main` rule 1039. Port the v0.4.0 rule.
+- With `infer_onsets`, the onsets become float64 (see 5).
 - The onset and melodia passes use different end offsets (`i-k` versus `i-1-k`).
 - The 172-frame floor in the time conversion (see section 5).
 - `constrain_frequency` mutates its inputs in place.

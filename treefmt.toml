@@ -18,6 +18,10 @@ excludes = [
     "**/*.f32",
     "**/*.gz",
     "**/testdata/**",
+    # "**/testdata/**" does not match the top-level testdata/ directory.
+    "testdata/**",
+    "scripts/fixtures/.venv/**",
+    "scripts/fixtures/.cache/**",
 
     "bin/**",
     "dist/**",

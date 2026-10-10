@@ -1,0 +1,32 @@
+[project]
+name = "algo-transcribe-fixtures"
+version = "0.0.0"
+description = "Golden-data generator for algo-transcribe (basic-pitch 0.4.0 reference)"
+requires-python = "==3.12.*"
+dependencies = [
+    "basic-pitch==0.4.0",
+    "onnxruntime==1.31.0",
+    "onnx==1.23.2",
+    "numpy==2.5.3",
+    "scipy==1.18.1",
+    "librosa==1.0.0",
+    "pretty_midi==0.2.11.post0",
+    "setuptools==80.10.2",
+]
+
+[tool.uv]
+package = false
+environments = ["sys_platform == 'darwin'", "sys_platform == 'linux'"]
+# The fixtures come from the ONNX model through onnxruntime. basic-pitch 0.4.0
+# also pulls in a TensorFlow, CoreML or TFLite backend depending on the
+# platform; none of them is used, and TensorFlow < 2.15.1 has no wheels for
+# this Python on macOS. Drop them all so every platform runs the same backend.
+override-dependencies = [
+    "tensorflow; sys_platform == 'never'",
+    "tensorflow-macos; sys_platform == 'never'",
+    "coremltools; sys_platform == 'never'",
+    "tflite-runtime; sys_platform == 'never'",
+]
+
+[tool.ruff]
+line-length = 120
