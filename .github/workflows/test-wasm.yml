@@ -1,0 +1,28 @@
+name: WASM Build
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  wasm:
+    name: GOOS=js GOARCH=wasm
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.x"
+
+      # The editor runs this library inside its WebAssembly kernel, so every
+      # package must keep building for js/wasm.
+      - name: Build
+        run: GOOS=js GOARCH=wasm go build ./...
+
+      - name: Vet
+        run: GOOS=js GOARCH=wasm go vet ./...

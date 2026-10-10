@@ -1,0 +1,31 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  enable:
+    - govet
+    - staticcheck
+    - errcheck
+    - ineffassign
+    - thelper
+    - tparallel
+    - unused
+    - wsl_v5
+
+    - revive
+  settings:
+    # varnamelen is intentionally not enabled: the port mirrors the upstream
+    # Python and the reference equations, whose short identifiers (n, k, f,
+    # hop, ...) are deliberate rather than unclear.
+    revive:
+      rules:
+        - name: file-length-limit
+          arguments:
+            - max: 1500
+              skip-comments: false
+              skip-blank-lines: false
+formatters:
+  enable:
+    - gofmt

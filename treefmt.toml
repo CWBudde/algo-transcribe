@@ -1,0 +1,53 @@
+# treefmt configuration for algo-transcribe
+
+[global]
+excludes = [
+    "**/.gitignore",
+    "**/.git/**",
+    "go.sum",
+    "go.mod",
+    "**/*.txt",
+    "CHANGELOG.md",
+    "LICENSE",
+    "NOTICE",
+
+    # Binary data, model weights and golden fixtures
+    "**/*.wav",
+    "**/*.onnx",
+    "**/*.bin",
+    "**/*.f32",
+    "**/*.gz",
+    "**/testdata/**",
+
+    "bin/**",
+    "dist/**",
+    "coverage.out",
+    "coverage.html",
+]
+
+[formatter.gofumpt]
+command = "gofumpt"
+options = ["-w"]
+includes = ["*.go"]
+
+[formatter.gci]
+command = "gci"
+options = ["write"]
+includes = ["*.go"]
+priority = 1
+
+[formatter.shellcheck]
+command = "shellcheck"
+includes = ["*.sh"]
+
+[formatter.shfmt]
+command = "shfmt"
+options = ["-s", "-w"]
+includes = ["*.sh"]
+priority = 1
+
+[formatter.prettier]
+command = "prettier"
+options = ["-w"]
+includes = ["*.md", "*.yaml", "*.yml", "*.json"]
+excludes = ["**/*.sops.*", "scripts/fixtures/.venv/**"]

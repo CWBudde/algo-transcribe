@@ -1,0 +1,33 @@
+# Binaries and executables
+/bin/
+/dist/
+*.exe
+*.test
+*.out
+
+# Testing and coverage
+.coverprofile
+coverage.txt
+coverage.html
+*.prof
+
+# IDEs and Editors
+.vscode/
+.idea/
+*.swp
+*~
+
+# Operating System
+.DS_Store
+
+# Misc
+.env
+.tmp/
+
+# Python fixture generator
+scripts/fixtures/.venv/
+__pycache__/
+
+# AI agents
+.claude/
+.ccbatch/
