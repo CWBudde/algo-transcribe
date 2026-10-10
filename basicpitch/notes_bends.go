@@ -247,11 +247,16 @@ func frameNotesToEvents(notes []frameNote, nFrames int) ([]noteEvent, error) {
 // (start_s, end_s, pitch, amplitude, bends): field by field, and the bends
 // lists lexicographically, a shorter prefix first.
 //
+// Python decides at the first field pair that is not equal (==) and then
+// asks <. A NaN amplitude (np.mean of NaN frames, or of an empty slice with
+// a negative min_note_len) equals nothing, and neither side is less, so
+// the events tie without comparing the bends and keep their input order.
+// Times are finite, so NaN ordering does not arise for them.
+//
 // Python raises TypeError when it has to compare None with a list; two
 // Nones compare equal. Mixed bends cannot occur, since include_pitch_bends
 // gives every note a list or every note None. compareNoteEvents treats a
 // nil Bends as equal to anything, so such ties keep their input order.
-// Times are finite, so NaN ordering does not arise.
 func compareNoteEvents(a, b noteEvent) int {
 	if c := cmp.Compare(a.Start, b.Start); c != 0 {
 		return c
@@ -265,8 +270,17 @@ func compareNoteEvents(a, b noteEvent) int {
 		return c
 	}
 
-	if c := cmp.Compare(a.Amplitude, b.Amplitude); c != 0 {
-		return c
+	if a.Amplitude != b.Amplitude {
+		// Unlike cmp.Compare, which sorts NaN first, a NaN on either
+		// side is neither less nor greater.
+		switch {
+		case a.Amplitude < b.Amplitude:
+			return -1
+		case a.Amplitude > b.Amplitude:
+			return 1
+		default:
+			return 0
+		}
 	}
 
 	if a.Bends == nil || b.Bends == nil {

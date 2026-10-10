@@ -369,8 +369,9 @@ float64 steps and converts every product explicitly.
 - Without `multiple_pitch_bends`:
   - Use one instrument.
   - `drop_overlapping_pitch_bends` sorts the notes (Python tuple order:
-    start, end, pitch, amplitude, then the bends lists) and removes the bends
-    of any notes that overlap in time. A note that starts exactly where
+    start, end, pitch, amplitude, then the bends lists; a NaN amplitude is
+    neither less nor greater, so such ties keep their order without comparing
+    the bends) and removes the bends of any notes that overlap in time. A note that starts exactly where
     another ends does not overlap it.
 - With `multiple_pitch_bends`: one instrument per pitch.
 - Bend events go at `linspace(start, end, len(bends))`, with value

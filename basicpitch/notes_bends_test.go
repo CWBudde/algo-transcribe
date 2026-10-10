@@ -450,6 +450,7 @@ func TestDropOverlappingPitchBends(t *testing.T) {
 	t.Parallel()
 
 	b := func(v ...int) []int { return v }
+	nan := float32(math.NaN())
 
 	tests := []struct {
 		name string
@@ -533,6 +534,23 @@ func TestDropOverlappingPitchBends(t *testing.T) {
 			},
 		},
 		{
+			// A NaN amplitude is neither less nor greater than anything in
+			// Python, so the events keep their input order.
+			name: "NaN amplitude stable",
+			in: []noteEvent{
+				{Start: 0, End: 1, Pitch: 60, Amplitude: 0.5, Bends: b(1)},
+				{Start: 0, End: 1, Pitch: 60, Amplitude: nan, Bends: b(2)},
+				{Start: 2, End: 3, Pitch: 60, Amplitude: nan, Bends: b(3)},
+				{Start: 2, End: 3, Pitch: 60, Amplitude: 0.5, Bends: b(4)},
+			},
+			want: []noteEvent{
+				{Start: 0, End: 1, Pitch: 60, Amplitude: 0.5},
+				{Start: 0, End: 1, Pitch: 60, Amplitude: nan},
+				{Start: 2, End: 3, Pitch: 60, Amplitude: nan},
+				{Start: 2, End: 3, Pitch: 60, Amplitude: 0.5},
+			},
+		},
+		{
 			// Python compares None == None as equal; nil keeps input order.
 			name: "nil bends stable",
 			in: []noteEvent{
@@ -582,6 +600,45 @@ func TestDropOverlappingPitchBendsOrderOfTies(t *testing.T) {
 	}
 }
 
+func TestCompareNoteEventsNaNAmplitude(t *testing.T) {
+	t.Parallel()
+
+	nan := float32(math.NaN())
+
+	ev := func(amp float32, bends ...int) noteEvent {
+		return noteEvent{Start: 0, End: 1, Pitch: 60, Amplitude: amp, Bends: bends}
+	}
+
+	// Expectations are Python's sorted() on the same tuples. The bends tell
+	// the events apart; a NaN amplitude stops the comparison before them.
+	tests := []struct {
+		name string
+		in   []noteEvent
+		want [][]int
+	}{
+		{name: "finite before NaN", in: []noteEvent{ev(0.5, 2), ev(nan, 1)}, want: [][]int{{2}, {1}}},
+		{name: "NaN before finite", in: []noteEvent{ev(nan, 2), ev(0.5, 1)}, want: [][]int{{2}, {1}}},
+		{name: "two NaNs skip bends", in: []noteEvent{ev(nan, 2), ev(nan, 1)}, want: [][]int{{2}, {1}}},
+		{name: "equal finite compare bends", in: []noteEvent{ev(0.5, 2), ev(0.5, 1)}, want: [][]int{{1}, {2}}},
+		{name: "finite order", in: []noteEvent{ev(0.5, 1), ev(0.25, 2)}, want: [][]int{{2}, {1}}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := slices.Clone(tc.in)
+			slices.SortStableFunc(got, compareNoteEvents)
+
+			for i, e := range got {
+				if !slices.Equal(e.Bends, tc.want[i]) {
+					t.Errorf("position %d: bends %v, want %v", i, e.Bends, tc.want[i])
+				}
+			}
+		})
+	}
+}
+
 func checkEvents(t *testing.T, got, want []noteEvent) {
 	t.Helper()
 
@@ -591,7 +648,8 @@ func checkEvents(t *testing.T, got, want []noteEvent) {
 
 	for i := range want {
 		g, w := got[i], want[i]
-		if g.Start != w.Start || g.End != w.End || g.Pitch != w.Pitch || g.Amplitude != w.Amplitude ||
+		if g.Start != w.Start || g.End != w.End || g.Pitch != w.Pitch ||
+			math.Float32bits(g.Amplitude) != math.Float32bits(w.Amplitude) ||
 			(g.Bends == nil) != (w.Bends == nil) || !slices.Equal(g.Bends, w.Bends) {
 			t.Errorf("event %d: %+v, want %+v", i, g, w)
 		}
