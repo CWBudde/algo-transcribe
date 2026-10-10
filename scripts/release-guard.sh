@@ -345,10 +345,12 @@ cmd_gate() {
 # changelog_section prints the CHANGELOG.md section of a version (at most 40
 # lines). Same heading-boundary rule as the gate, for the same reason: a
 # "## 0.8.0-rc1" section preceding the real one would otherwise be picked up
-# and embedded as this tag's release notes.
+# and embedded as this tag's release notes. Case-insensitive like the gate's
+# `grep -qiE`, so a "## [V0.8.0]" heading the gate accepts also yields notes
+# (tolower, since BSD awk has no IGNORECASE).
 changelog_section() {
 	awk -v v="$(printf '%s' "${1#v}" | sed 's/[.]/[.]/g')" '
-      $0 ~ "^##+ *\\[?v?" v "\\]?([^0-9.-].*)?$" {f=1; next}
+      tolower($0) ~ "^##+ *\\[?v?" tolower(v) "\\]?([^0-9.-].*)?$" {f=1; next}
       f && /^##+ /{exit}
       f {print}
     ' CHANGELOG.md | head -40
