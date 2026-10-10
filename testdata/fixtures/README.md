@@ -93,7 +93,8 @@ samples exactly as `int16 / 32768`.
 
 ## Size
 
-The directory is about 8.0 MB, above the ~5 MB budget the plan set. The raw
+The directory is about 8.0 MB, within the ~8 MB budget of the plan (first set
+at ~5 MB, then revised because that needs dropping parity inputs). The raw
 float data for the 7 windows is 19.4 MB. gzip gets the per-window arrays to
 65–70 % of their raw size and the unwrapped ones to about 80 %. The reordered
 harmonic stack comes down to 10 %. The task lists every array for parity tests,
