@@ -23,9 +23,12 @@ const (
 // run at a third of the GEMM throughput (PLAN 1.1), take 7 to 40 rows.
 const modelStepMACs = 1 << 20
 
-// errJobSuperseded is returned by a [ForwardJob] whose model has started
-// another forward pass since.
-var errJobSuperseded = errors.New("basicpitch: model: forward job superseded by a newer one on the same model")
+// ErrJobSuperseded is returned by [ForwardJob.Step] when another forward
+// pass has started on the job's model since the job was (re)started. The
+// model's activation buffers now belong to that pass, so the job cannot
+// continue and its outputs are no longer valid, even if it had completed.
+// [ForwardJob.Reset] starts the job over. Test for it with [errors.Is].
+var ErrJobSuperseded = errors.New("basicpitch: model: forward job superseded by a newer one on the same model")
 
 // modelStage is one convolution of the CNN with its activation, run over
 // the rows of one window.
@@ -62,8 +65,9 @@ type modelStage struct {
 // A Model owns its activation buffers and the scratch space of its
 // convolutions, so after [NewModel] a forward pass does not allocate. For
 // the same reason a Model is not safe for concurrent use, and it runs one
-// forward pass at a time: starting a new one supersedes any unfinished
-// [ForwardJob]. Use one Model per goroutine.
+// forward pass at a time: starting a new one supersedes every earlier
+// [ForwardJob], finished or not (see [ErrJobSuperseded]). Use one Model per
+// goroutine.
 type Model struct {
 	stages [6]modelStage
 
@@ -155,7 +159,7 @@ func NewModel() (*Model, error) {
 //
 // The returned tensors belong to the model: they stay valid until the next
 // forward pass on m starts, and the caller must not modify them. Forward
-// supersedes any unfinished [ForwardJob] of m. It does not allocate.
+// supersedes every earlier [ForwardJob] of m. It does not allocate.
 func (m *Model) Forward(stack *nn.Tensor) (contour, note, onset *nn.Tensor, err error) {
 	if err := m.job.Reset(stack); err != nil {
 		return nil, nil, nil, err
@@ -191,7 +195,7 @@ type ForwardJob struct {
 }
 
 // NewForwardJob starts a forward pass of m on the harmonic stack of one
-// window, a (172, 264, 8) tensor. It supersedes any unfinished job of m.
+// window, a (172, 264, 8) tensor. It supersedes every earlier job of m.
 // Use [ForwardJob.Reset] to start further passes without allocating.
 func (m *Model) NewForwardJob(stack *nn.Tensor) (*ForwardJob, error) {
 	j := &ForwardJob{m: m}
@@ -203,8 +207,8 @@ func (m *Model) NewForwardJob(stack *nn.Tensor) (*ForwardJob, error) {
 }
 
 // Reset starts a new forward pass of the job's model on stack, discarding
-// the progress of the current one. It supersedes any other unfinished job
-// of the same model and does not allocate.
+// the progress of the current one. It supersedes every other job of the
+// same model and does not allocate.
 func (j *ForwardJob) Reset(stack *nn.Tensor) error {
 	if stack == nil {
 		return errors.New("basicpitch: model: nil harmonic stack")
@@ -228,12 +232,14 @@ func (j *ForwardJob) Reset(stack *nn.Tensor) error {
 
 // Step advances the forward pass by one row block of one layer and reports
 // whether the pass is complete. Once it is, further calls return true
-// without doing any work. Step returns an error if another forward pass has
-// started on the same model since this job was (re)started.
+// without doing any work, as long as no other pass has started on the
+// model. If one has since this job was (re)started, Step returns
+// [ErrJobSuperseded], whether or not the job had completed: its outputs
+// are being overwritten.
 func (j *ForwardJob) Step() (done bool, err error) {
 	m := j.m
 	if j.gen != m.gen {
-		return false, errJobSuperseded
+		return false, ErrJobSuperseded
 	}
 
 	if j.stage == len(m.stages) {

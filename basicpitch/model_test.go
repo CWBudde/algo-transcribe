@@ -2,6 +2,7 @@ package basicpitch
 
 import (
 	"errors"
+	"fmt"
 	"math"
 	"slices"
 	"strings"
@@ -332,50 +333,59 @@ func TestForwardJobSuperseded(t *testing.T) {
 		}},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
+	// steps is how far job A gets before it is superseded; a completed job
+	// is superseded too, because the new pass overwrites its outputs.
+	for _, steps := range []int{5, modelPinnedSteps} {
+		for _, tc := range tests {
+			t.Run(fmt.Sprintf("%s/after%d", tc.name, steps), func(t *testing.T) {
+				t.Parallel()
 
-			m := newTestModel(t)
+				m := newTestModel(t)
 
-			a, err := m.NewForwardJob(stackA)
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			for range 5 {
-				if _, err := a.Step(); err != nil {
+				a, err := m.NewForwardJob(stackA)
+				if err != nil {
 					t.Fatal(err)
 				}
-			}
 
-			tc.supersede(t, m)
+				for i := range steps {
+					done, err := a.Step()
+					if err != nil {
+						t.Fatal(err)
+					}
 
-			done, err := a.Step()
-			if !errors.Is(err, errJobSuperseded) || done {
-				t.Fatalf("Step of superseded job = %v, %v; want false, errJobSuperseded", done, err)
-			}
+					if want := i == modelPinnedSteps-1; done != want {
+						t.Fatalf("step %d: done = %v, want %v", i, done, want)
+					}
+				}
 
-			if got, _ := a.Progress(); got != 5 {
-				t.Errorf("superseded job progress = %d, want 5", got)
-			}
+				tc.supersede(t, m)
 
-			// Reset revives the job, and the pass it then runs is complete.
-			if err := a.Reset(stackA); err != nil {
-				t.Fatal(err)
-			}
+				done, err := a.Step()
+				if !errors.Is(err, ErrJobSuperseded) || done {
+					t.Fatalf("Step of superseded job = %v, %v; want false, ErrJobSuperseded", done, err)
+				}
 
-			if got, _ := a.Progress(); got != 0 {
-				t.Errorf("progress after Reset = %d, want 0", got)
-			}
+				if got, _ := a.Progress(); got != steps {
+					t.Errorf("superseded job progress = %d, want %d", got, steps)
+				}
 
-			runJob(t, a)
+				// Reset revives the job, and the pass it then runs is complete.
+				if err := a.Reset(stackA); err != nil {
+					t.Fatal(err)
+				}
 
-			ac, an, ao := a.Outputs()
-			assertBitEqual(t, "contour", ac, wantA[0])
-			assertBitEqual(t, "note", an, wantA[1])
-			assertBitEqual(t, "onset", ao, wantA[2])
-		})
+				if got, _ := a.Progress(); got != 0 {
+					t.Errorf("progress after Reset = %d, want 0", got)
+				}
+
+				runJob(t, a)
+
+				ac, an, ao := a.Outputs()
+				assertBitEqual(t, "contour", ac, wantA[0])
+				assertBitEqual(t, "note", an, wantA[1])
+				assertBitEqual(t, "onset", ao, wantA[2])
+			})
+		}
 	}
 }
 
