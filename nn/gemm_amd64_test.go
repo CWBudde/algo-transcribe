@@ -128,12 +128,18 @@ func TestGemmAVX2MaskedLanes(t *testing.T) {
 // basic-pitch layer shape whenever the CPU reports AVX2 and FMA. It fails,
 // rather than skips, in that case, so the ubuntu CI job (GitHub Actions sets
 // CI=true, and its x86 runners have both features) provably exercises the
-// kernels instead of silently testing the Go tiles twice. Only a CPU without
-// the features skips it.
+// kernels instead of silently testing the Go tiles twice. A CPU without the
+// features skips it locally but fails it under CI, where the amd64 job is
+// meant to run the kernels.
 func TestGemmAVX2Selected(t *testing.T) {
 	t.Parallel()
 
 	ci := os.Getenv("CI")
+
+	if ci != "" && (!cpu.X86.HasAVX2 || !cpu.X86.HasFMA) {
+		t.Fatalf("CI=%q: the runner lacks AVX2 (%v) or FMA (%v), so the AVX2 kernels cannot be tested",
+			ci, cpu.X86.HasAVX2, cpu.X86.HasFMA)
+	}
 
 	if !cpu.X86.HasAVX2 || !cpu.X86.HasFMA {
 		t.Skipf("CI=%q: the CPU lacks AVX2 (%v) or FMA (%v), so gemm runs the Go tiles",
