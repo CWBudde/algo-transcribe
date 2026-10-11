@@ -38,8 +38,10 @@ Apple M5 Pro with Go 1.27.1 (see [docs/benchmarks](docs/benchmarks)):
 | darwin/arm64, `-tags purego` | Go tiles           |         38.8 ms |            42 × |
 | js/wasm in Node 24           | Go tiles (no SIMD) |        104.6 ms |            16 × |
 
-On arm64 the convolutions use NEON kernels; every other target, and any
-build with the `purego` tag, uses the register-blocked Go tiles.
+On arm64 the convolutions use NEON kernels, on amd64 CPUs with AVX2 and FMA
+AVX2 kernels; every other target or CPU, and any build with the `purego` tag,
+uses the register-blocked Go tiles. The amd64 figures will be added once
+measured on a named x86 CPU (see [docs/benchmarks](docs/benchmarks)).
 
 ## Part of the algo-\* family
 
