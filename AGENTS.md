@@ -24,6 +24,7 @@ reproduce, with every constant and upstream quirk, is in
 | `basicpitch/`                  | Public API: options, windowing, front end, model graph, note creation, resumable `Job` |
 | `basicpitch/weights.bin`       | Embedded model weights extracted from upstream `nmp.onnx` (`go:embed`)                 |
 | `nn/`                          | Minimal float32 inference ops (NHWC Conv2D with TF "same" padding, activations)        |
+| `nn/gemm_arm64.s`              | arm64 NEON GEMM kernels in front of the Go tiles (see "Assembly")                      |
 | `smfout/`                      | MIDI (via `github.com/cwbudde/midi`) and CSV writers with basic-pitch semantics        |
 | `cmd/algo-transcribe/`         | CLI: WAV in, MIDI/CSV/JSON out                                                         |
 | `internal/onnx/`               | Dependency-free ONNX protobuf reader, used only by the weight extractor                |
@@ -77,6 +78,53 @@ just ci           # everything CI runs
 - PLAN.md holds open work. When an item is done, tick it and add a one-line note
   (what was covered, numbers, deliberate gaps).
 - Benchmark numbers in docs come from real runs, with date, CPU and method.
+
+## Assembly
+
+`nn`'s GEMM has native SIMD kernels (PLAN Phase 4): arm64 NEON in
+`nn/gemm_arm64.s`. The rules, adapted from algo-fft's "When Working with
+Assembly":
+
+- **js/wasm must not regress.** Go emits no wasm SIMD, so wasm always runs the
+  Go tiles of `nn/gemm.go`. Assembly only ever adds a path in front of them;
+  check `just test-wasm` and the wasm benchmarks are unchanged.
+- **Always a Go fallback.** Only the `.s` file, its `//go:noescape`
+  declarations and the architecture's `gemmSIMD` carry
+  `//go:build arm64 && !purego`. A stub `gemmSIMD` that returns false is built
+  under `!arm64 || purego`, and the Go tiles are built on every target: they
+  run for every shape a kernel does not cover. `-tags purego` runs exactly the
+  wasm code natively; CI tests both.
+- **Every asm entry point is called by a test**, directly, against the float64
+  reference and against the Go tiles. Declared-but-uncalled assembly is
+  untested assembly; an optimisation that measures no change at all most
+  likely does not run. A test also asserts that the SIMD path is taken for
+  every basic-pitch layer shape.
+- **Plan 9 operand order**: sources first, destination last.
+  `VFMLA V1.S4, V2.S4, V3.S4` is V3 += V2 × V1. Comment every instruction
+  whose effect is not obvious from its name.
+- **Frames**: entry points are leaf functions marked `NOSPLIT` with a zero
+  local frame and the exact argument size (`$0-NN`, a slice is 24 bytes, an
+  `int` 8). `go vet` (asmdecl) checks the frames against the declarations; CI
+  vets for `GOARCH=arm64` and `GOARCH=amd64`.
+- **`//go:noescape`** on every declaration, so the slices passed to assembly
+  stay on the stack. The Go wrapper reslices every operand to the exact length
+  the kernel touches before the call, so a short slice panics in Go instead of
+  corrupting memory in assembly.
+- **Missing mnemonics**: Go's arm64 assembler lacks several vector float
+  instructions (FADD, FMUL, FADDP, by-element FMLA). Encode them with `WORD`
+  macros in the style of algo-fft's `internal/asm/arm64/neon_fp.h`, with the
+  ARM ARM encoding in a comment and attribution. A wrong encoding assembles
+  happily; only the reference tests catch it.
+- **NEON is mandatory on arm64**, so there is no runtime feature detection.
+- **Determinism, not scalar order**: a kernel must give bit-identical output
+  for identical input in every call (`ForwardRows` chunking relies on it), but
+  it need not reproduce the summation order of the Go tiles. Results stay
+  within the float64-reference tolerance of the GEMM tests and the model's
+  §6 parity tolerance.
+- **Zero allocations** and no runtime calls from assembly; dispatch per shape
+  happens in the Go wrapper. A kernel lands only if it is at least as fast as
+  the Go tile on every basic-pitch layer shape it covers; otherwise the wrapper
+  returns false for that shape.
 
 ## Licensing
 
