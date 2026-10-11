@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -476,22 +477,62 @@ func TestModelInvalidStack(t *testing.T) {
 	}
 }
 
-// zeroAllocRuns is the run count of the AllocsPerRun checks. AllocsPerRun
-// counts the allocations of the whole process and divides by the run count
-// in integers, so with one run a single stray runtime allocation on a busy
-// CI machine failed the check (seen once on macOS with Go 1.25); with ten it
-// rounds away, while an allocation in every call still reports >= 1.
-const zeroAllocRuns = 10
+// allocsOverCalls returns the heap allocations of the whole process while f
+// runs calls times (after one warm-up call), with GOMAXPROCS 1 as in
+// testing.AllocsPerRun. Unlike AllocsPerRun it returns the total, not an
+// integer average, so an allocation in any single call is counted.
+func allocsOverCalls(calls int, f func()) uint64 {
+	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(1))
 
-// TestModelZeroAllocs must not run in parallel: AllocsPerRun counts the
-// allocations of the whole process.
+	f()
+
+	var before, after runtime.MemStats
+
+	runtime.ReadMemStats(&before)
+
+	for range calls {
+		f()
+	}
+
+	runtime.ReadMemStats(&after)
+
+	return after.Mallocs - before.Mallocs
+}
+
+// requireZeroAllocs fails unless f allocates nothing in total over ten calls
+// in at least one of three attempts. An allocation in the code under test is
+// deterministic and shows up in every attempt, including one that happens in
+// only some calls. A single stray runtime allocation elsewhere in the
+// process, which failed a one-call check once on CI (macOS, Go 1.25), does
+// not repeat.
+func requireZeroAllocs(t *testing.T, name string, f func()) {
+	t.Helper()
+
+	const calls, attempts = 10, 3
+
+	var got []uint64
+
+	for range attempts {
+		n := allocsOverCalls(calls, f)
+		if n == 0 {
+			return
+		}
+
+		got = append(got, n)
+	}
+
+	t.Errorf("%s: %v allocations over %d calls in each of %d attempts, want 0", name, got, calls, attempts)
+}
+
+// TestModelZeroAllocs must not run in parallel: the allocation counts cover
+// the whole process.
 func TestModelZeroAllocs(t *testing.T) {
 	stack := testStack(t, fixture.MustOpen(t, "vocal"), 1)
 	m := newTestModel(t)
 
 	var err error
 
-	allocs := testing.AllocsPerRun(zeroAllocRuns, func() {
+	requireZeroAllocs(t, "Forward", func() {
 		_, _, _, err = m.Forward(stack)
 	})
 
@@ -499,16 +540,12 @@ func TestModelZeroAllocs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if allocs != 0 {
-		t.Errorf("Forward: %v allocations per run, want 0", allocs)
-	}
-
 	job, err := m.NewForwardJob(stack)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	allocs = testing.AllocsPerRun(zeroAllocRuns, func() {
+	requireZeroAllocs(t, "Reset and Step loop", func() {
 		err = job.Reset(stack)
 
 		for err == nil {
@@ -523,10 +560,6 @@ func TestModelZeroAllocs(t *testing.T) {
 
 	if err != nil {
 		t.Fatal(err)
-	}
-
-	if allocs != 0 {
-		t.Errorf("Reset and Step loop: %v allocations per run, want 0", allocs)
 	}
 
 	if done, total := job.Progress(); done != total {
