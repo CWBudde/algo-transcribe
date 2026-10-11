@@ -48,11 +48,11 @@ func TestGemm(t *testing.T) {
 	}
 }
 
-// TestGemmSIMD checks the SIMD kernels alone against the float64 reference
-// over every shape of the sweep they cover, plus depths that give every
-// k%8 remainder, so that every k%4 tail mask and the single 4-element step
-// of the 8×1 kernel run.
-func TestGemmSIMD(t *testing.T) {
+// TestGemmSIMDTails checks the SIMD kernels against the float64 reference
+// at the depths TestGemmTiled's sweep lacks: together they give every k%8
+// remainder, so every k%4 tail mask and the single 4-element step of the 8×1
+// kernel run.
+func TestGemmSIMDTails(t *testing.T) {
 	t.Parallel()
 
 	if !haveSIMD {
@@ -67,9 +67,7 @@ func TestGemmSIMD(t *testing.T) {
 		}
 	}
 
-	depths := append([]int{4, 6, 7, 10, 11, 14, 15}, gemmSweepK...)
-
-	for _, k := range depths {
+	for _, k := range []int{4, 6, 7, 10, 11, 14, 15} {
 		for m := 0; m <= 17; m++ {
 			for _, n := range gemmSweepN {
 				if !simdCovers(n, k) {
