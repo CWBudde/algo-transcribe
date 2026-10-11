@@ -30,18 +30,21 @@ go run github.com/cwbudde/algo-transcribe/cmd/algo-transcribe in.wav -o out.mid
 ## Performance
 
 The CNN runs one 172-frame window (1.64 s of new audio) in these times on an
-Apple M5 Pro with Go 1.27.1 (see [docs/benchmarks](docs/benchmarks)):
+Apple M5 Pro with Go 1.27.1 and, for linux/amd64, one core of an Intel Xeon
+Gold 5520+ with Go 1.25.0 (see [docs/benchmarks](docs/benchmarks)):
 
-| Target                       | GEMM               | Time per window | Realtime factor |
-| ---------------------------- | ------------------ | --------------: | --------------: |
-| darwin/arm64                 | NEON assembly      |         15.3 ms |           107 × |
-| darwin/arm64, `-tags purego` | Go tiles           |         38.8 ms |            42 × |
-| js/wasm in Node 24           | Go tiles (no SIMD) |        104.6 ms |            16 × |
+| Target                        | GEMM                | Time per window | Realtime factor |
+| ----------------------------- | ------------------- | --------------: | --------------: |
+| darwin/arm64                  | NEON assembly       |         15.3 ms |           107 × |
+| darwin/arm64, `-tags purego`  | Go tiles            |         38.8 ms |            42 × |
+| linux/amd64 (Xeon Gold 5520+) | AVX2 + FMA assembly |         19.0 ms |            86 × |
+| linux/amd64, `-tags purego`   | Go tiles            |        115.1 ms |            14 × |
+| js/wasm in Node 24            | Go tiles (no SIMD)  |        104.6 ms |            16 × |
 
 On arm64 the convolutions use NEON kernels, on amd64 CPUs with AVX2 and FMA
 AVX2 kernels; every other target or CPU, and any build with the `purego` tag,
-uses the register-blocked Go tiles. The amd64 figures will be added once
-measured on a named x86 CPU (see [docs/benchmarks](docs/benchmarks)).
+uses the register-blocked Go tiles. Measurement details are in
+[docs/benchmarks](docs/benchmarks).
 
 ## Part of the algo-\* family
 
