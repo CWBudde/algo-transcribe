@@ -476,6 +476,13 @@ func TestModelInvalidStack(t *testing.T) {
 	}
 }
 
+// zeroAllocRuns is the run count of the AllocsPerRun checks. AllocsPerRun
+// counts the allocations of the whole process and divides by the run count
+// in integers, so with one run a single stray runtime allocation on a busy
+// CI machine failed the check (seen once on macOS with Go 1.25); with ten it
+// rounds away, while an allocation in every call still reports >= 1.
+const zeroAllocRuns = 10
+
 // TestModelZeroAllocs must not run in parallel: AllocsPerRun counts the
 // allocations of the whole process.
 func TestModelZeroAllocs(t *testing.T) {
@@ -484,7 +491,7 @@ func TestModelZeroAllocs(t *testing.T) {
 
 	var err error
 
-	allocs := testing.AllocsPerRun(1, func() {
+	allocs := testing.AllocsPerRun(zeroAllocRuns, func() {
 		_, _, _, err = m.Forward(stack)
 	})
 
@@ -501,7 +508,7 @@ func TestModelZeroAllocs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	allocs = testing.AllocsPerRun(1, func() {
+	allocs = testing.AllocsPerRun(zeroAllocRuns, func() {
 		err = job.Reset(stack)
 
 		for err == nil {
