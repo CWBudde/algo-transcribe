@@ -27,6 +27,20 @@ for _, n := range res.Notes {
 go run github.com/cwbudde/algo-transcribe/cmd/algo-transcribe in.wav -o out.mid
 ```
 
+## Performance
+
+The CNN runs one 172-frame window (1.64 s of new audio) in these times on an
+Apple M5 Pro with Go 1.27.1 (see [docs/benchmarks](docs/benchmarks)):
+
+| Target                       | GEMM               | Time per window | Realtime factor |
+| ---------------------------- | ------------------ | --------------: | --------------: |
+| darwin/arm64                 | NEON assembly      |         15.3 ms |           107 × |
+| darwin/arm64, `-tags purego` | Go tiles           |         38.8 ms |            42 × |
+| js/wasm in Node 24           | Go tiles (no SIMD) |        104.6 ms |            16 × |
+
+On arm64 the convolutions use NEON kernels; every other target, and any
+build with the `purego` tag, uses the register-blocked Go tiles.
+
 ## Part of the algo-\* family
 
 - Constant-Q transform, resampling and filter design: [algo-dsp](https://github.com/cwbudde/algo-dsp)

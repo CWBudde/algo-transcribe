@@ -13,6 +13,10 @@
 //   - [ConcatChannels]: concatenation along the channel axis.
 //   - [FoldBatchNorm]: folds an inference BatchNorm into conv weights and bias.
 //
-// Everything is plain Go without assembly or cgo so that it stays fast under
-// GOOS=js GOARCH=wasm, and nothing allocates after setup.
+// The GEMM behind [Conv2D] is plain Go, register-blocked so that it stays
+// fast under GOOS=js GOARCH=wasm, where it always runs. On arm64 it is
+// preceded by NEON assembly kernels (dot form over the transposed weights)
+// that cover every basic-pitch layer shape; the Go tiles remain the fallback
+// for other shapes and run everywhere under the purego build tag. There is
+// no cgo, and nothing allocates after setup.
 package nn

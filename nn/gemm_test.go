@@ -7,27 +7,71 @@ import (
 	"testing"
 )
 
-// TestGemmTiled checks both tile widths on every architecture against a
-// float64 reference, over sizes that hit every row and channel remainder of
-// the 4×tileN and 8×1 tiles.
+// gemmSizes are the depths and channel counts of the GEMM sweeps: every
+// k%4 and k%8 remainder, every basic-pitch depth (49, 200, 297, 672, 936),
+// n = 1..9 for every channel remainder and n = 32 as in basic-pitch.
+var (
+	gemmSweepK = []int{1, 2, 3, 5, 8, 49, 200, 297, 672, 936}
+	gemmSweepN = []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 32}
+)
+
+// gemmFunc is the signature of gemm and its variants.
+type gemmFunc func(out, a, wt, bias []float32, m, k int)
+
+// TestGemmTiled checks both Go tile widths on every architecture, and the
+// SIMD kernels where the target has them, against a float64 reference, over
+// sizes that hit every row and channel remainder of the 4×tileN, 8×1 and
+// SIMD tiles. The SIMD variant runs only the shapes gemmSIMD covers; the
+// others fall back to the Go tiles (TestGemm checks that dispatch).
 func TestGemmTiled(t *testing.T) {
 	t.Parallel()
 
 	rng := rand.New(rand.NewPCG(3, 4))
 
-	for _, nr := range []int{4, 2} {
-		for _, k := range []int{1, 2, 3, 5, 8, 49, 200, 936} {
+	variants := []string{"nr4", "nr2"}
+	if haveSIMD {
+		variants = append(variants, "simd")
+	}
+
+	for _, variant := range variants {
+		var f gemmFunc
+
+		switch variant {
+		case "nr4", "nr2":
+			nr := 4
+			if variant == "nr2" {
+				nr = 2
+			}
+
+			f = func(out, a, wt, bias []float32, m, k int) {
+				gemmTiled(out, a, wt, bias, m, k, nr)
+			}
+		case "simd":
+			f = func(out, a, wt, bias []float32, m, k int) {
+				if !gemmSIMD(out, a, wt, bias, m, k) {
+					t.Fatalf("gemmSIMD declined m=%d n=%d k=%d", m, len(bias), k)
+				}
+			}
+		}
+
+		for _, k := range gemmSweepK {
 			for m := 0; m <= 17; m++ {
-				for n := 1; n <= 9; n++ {
-					name := fmt.Sprintf("nr%d/k%d/m%d/n%d", nr, k, m, n)
-					checkGemm(t, rng, name, nr, m, n, k)
+				for _, n := range gemmSweepN {
+					if variant == "simd" && !simdCovers(n, k) {
+						continue
+					}
+
+					name := fmt.Sprintf("%s/k%d/m%d/n%d", variant, k, m, n)
+					checkGemm(t, rng, name, f, m, n, k)
 				}
 			}
 		}
 	}
 }
 
-func checkGemm(t *testing.T, rng *rand.Rand, name string, nr, m, n, k int) {
+// checkGemm runs f on random data and compares every output with a float64
+// reference, with a guard element after the output.
+func checkGemm(t *testing.T, rng *rand.Rand, name string, f gemmFunc, m, n, k int) {
 	t.Helper()
 
 	a := gemmRandSlice(rng, m*k)
@@ -37,7 +81,7 @@ func checkGemm(t *testing.T, rng *rand.Rand, name string, nr, m, n, k int) {
 	out := make([]float32, m*n+1)
 	out[m*n] = 42 // guard element after the matrix
 
-	gemmTiled(out[:m*n], a, wt, bias, m, k, nr)
+	f(out[:m*n], a, wt, bias, m, k)
 
 	if out[m*n] != 42 {
 		t.Fatalf("%s: wrote past the output", name)

@@ -14,9 +14,17 @@ const blockM = 8
 // tile. The tile width is tileN (see gemm_tile*.go): output channels are
 // covered by 4×tileN tiles, and the remaining n%tileN channels by 8×1 tiles.
 // The kernels are plain Go written so that the compiler removes the bounds
-// checks from the inner loops; there is no assembly, so the same code runs
-// under js/wasm.
+// checks from the inner loops, and they run on every target, js/wasm
+// included.
+//
+// On arm64 (without the purego tag) gemm first tries the NEON kernels of
+// gemmSIMD, which cover n = 1 and n a multiple of 4 for k >= 4; other shapes
+// fall back to the Go tiles.
 func gemm(out, a, wt, bias []float32, m, k int) {
+	if gemmSIMD(out, a, wt, bias, m, k) {
+		return
+	}
+
 	gemmTiled(out, a, wt, bias, m, k, tileN)
 }
 
