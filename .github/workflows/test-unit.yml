@@ -8,11 +8,14 @@ permissions:
 
 jobs:
   test:
-    name: Test (Go ${{ matrix.go-version }})
-    runs-on: ubuntu-latest
+    name: Test (${{ matrix.os }}, Go ${{ matrix.go-version }})
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        # ubuntu-latest is amd64 and runs the Go GEMM tiles; macos-latest is
+        # arm64 and runs the NEON kernels of nn/gemm_arm64.s.
+        os: [ubuntu-latest, macos-latest]
         go-version: ["1.25.x", "stable"]
     steps:
       - name: Checkout
@@ -25,3 +28,15 @@ jobs:
 
       - name: Test
         run: go test ./...
+
+      # The purego tag disables every assembly kernel, so this runs the Go
+      # fallback that js/wasm and other targets use.
+      - name: Test (purego)
+        run: go test -tags purego ./...
+
+      # asmdecl checks the assembly frames against their Go declarations for
+      # each architecture, whichever runner this is.
+      - name: Vet (arm64, amd64)
+        run: |
+          GOARCH=arm64 go vet ./...
+          GOARCH=amd64 go vet ./...
