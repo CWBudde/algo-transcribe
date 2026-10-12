@@ -24,7 +24,7 @@ reproduce, with every constant and upstream quirk, is in
 | `basicpitch/`                  | Public API: options, windowing, front end, model graph, note creation, resumable `Job` |
 | `basicpitch/weights.bin`       | Embedded model weights extracted from upstream `nmp.onnx` (`go:embed`)                 |
 | `nn/`                          | Minimal float32 inference ops (NHWC Conv2D with TF "same" padding, activations)        |
-| `nn/gemm_arm64.s`              | arm64 NEON GEMM kernels in front of the Go tiles (see "Assembly")                      |
+| `nn/gemm_{arm64,amd64}.s`      | arm64 NEON and amd64 AVX2+FMA GEMM kernels in front of the Go tiles (see "Assembly")   |
 | `smfout/`                      | MIDI (via `github.com/cwbudde/midi`) and CSV writers with basic-pitch semantics        |
 | `cmd/algo-transcribe/`         | CLI: WAV in, MIDI/CSV/JSON out                                                         |
 | `internal/onnx/`               | Dependency-free ONNX protobuf reader, used only by the weight extractor                |
@@ -82,26 +82,31 @@ just ci           # everything CI runs
 ## Assembly
 
 `nn`'s GEMM has native SIMD kernels (PLAN Phase 4): arm64 NEON in
-`nn/gemm_arm64.s`. The rules, adapted from algo-fft's "When Working with
-Assembly":
+`nn/gemm_arm64.s` and amd64 AVX2+FMA in `nn/gemm_amd64.s`, covering the same
+shapes. The rules, adapted from algo-fft's "When Working with Assembly":
 
 - **js/wasm must not regress.** Go emits no wasm SIMD, so wasm always runs the
   Go tiles of `nn/gemm.go`. Assembly only ever adds a path in front of them;
   check `just test-wasm` and the wasm benchmarks are unchanged.
 - **Always a Go fallback.** Only the `.s` file, its `//go:noescape`
   declarations and the architecture's `gemmSIMD` carry
-  `//go:build arm64 && !purego`. A stub `gemmSIMD` that returns false is built
-  under `!arm64 || purego`, and the Go tiles are built on every target: they
-  run for every shape a kernel does not cover. `-tags purego` runs exactly the
-  wasm code natively; CI tests both.
+  `//go:build <arch> && !purego`. A stub `gemmSIMD` that returns false is
+  built under `(!arm64 && !amd64) || purego`, and the Go tiles are built on
+  every target: they run for every shape a kernel does not cover (and on
+  amd64 CPUs without AVX2 or FMA). `-tags purego` runs exactly the wasm code
+  natively; CI tests both.
 - **Every asm entry point is called by a test**, directly, against the float64
   reference and against the Go tiles. Declared-but-uncalled assembly is
   untested assembly; an optimisation that measures no change at all most
   likely does not run. A test also asserts that the SIMD path is taken for
-  every basic-pitch layer shape.
+  every basic-pitch layer shape. On amd64, `TestGemmAVX2Selected` fails
+  rather than skips whenever the CPU reports AVX2 and FMA and the AVX2 path
+  is not taken, so the ubuntu CI job (`CI=true`) provably runs the kernels;
+  only a CPU without the features skips it.
 - **Plan 9 operand order**: sources first, destination last.
-  `VFMLA V1.S4, V2.S4, V3.S4` is V3 += V2 × V1. Comment every instruction
-  whose effect is not obvious from its name.
+  `VFMLA V1.S4, V2.S4, V3.S4` is V3 += V2 × V1 (arm64);
+  `VFMADD231PS Y8, Y12, Y0` is Y0 += Y12 × Y8 (amd64). Comment every
+  instruction whose effect is not obvious from its name.
 - **Frames**: entry points are leaf functions marked `NOSPLIT` with a zero
   local frame and the exact argument size (`$0-NN`, a slice is 24 bytes, an
   `int` 8). `go vet` (asmdecl) checks the frames against the declarations; CI
@@ -116,6 +121,21 @@ Assembly":
   ARM ARM encoding in a comment and attribution. A wrong encoding assembles
   happily; only the reference tests catch it.
 - **NEON is mandatory on arm64**, so there is no runtime feature detection.
+  **AVX2 and FMA are not mandatory on amd64**: `nn/gemm_amd64.go` evaluates
+  `cpu.X86.HasAVX2 && cpu.X86.HasFMA` (`golang.org/x/sys/cpu`) once into the
+  package variable `haveSIMD`, and `gemmSIMD` returns false without both.
+- **amd64 encoding**: use VEX encodings throughout and never mix VEX and
+  legacy-SSE instructions in one function (algo-fft measured a 152× slowdown
+  for a partially converted loop): `VMOVSS`/`VADDSS`, not `MOVSS`/`ADDSS`.
+  Run `VZEROUPPER` before every `RET`.
+- **amd64 registers**: leave BP (frame pointer) and R15 (clobbered by global
+  accesses under dynamic linking) alone. R14 and X15 may be used in ABI0 code;
+  the ABI wrapper restores them for ABIInternal callers.
+- **Local amd64 checks on Apple silicon**: `GOARCH=amd64 go vet ./...`,
+  `GOARCH=amd64 go test -c -o /dev/null ./nn`, and `just test-amd64`, which
+  runs the amd64 test binaries in Docker. Docker Desktop's Rosetta reports
+  AVX2 and FMA, so the kernels run, but its timings are no x86 benchmark
+  evidence.
 - **Determinism, not scalar order**: a kernel must give bit-identical output
   for identical input in every call (`ForwardRows` chunking relies on it), but
   it need not reproduce the summation order of the Go tiles. Results stay

@@ -50,6 +50,25 @@ wasm-check:
 test-wasm:
     GOOS=js GOARCH=wasm go test -exec="$(go env GOROOT)/lib/wasm/go_js_wasm_exec" ./...
 
+# Run the amd64 tests in Docker, for Apple-silicon machines (needs Docker Desktop)
+test-amd64:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mod=$(go list -m)
+    rm -rf .tmp/amd64
+    mkdir -p .tmp/amd64
+    for pkg in $(go list ./...); do
+        dir=".${pkg#"$mod"}"
+        bin="$(echo "${dir#./}" | tr / _).test"
+        [ "$dir" = "." ] && bin="root.test"
+        CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go test -c -o ".tmp/amd64/$bin" "$pkg"
+        # go test -c writes no binary for a package without test files.
+        [ -f ".tmp/amd64/$bin" ] || continue
+        echo "== $pkg"
+        docker run --rm --platform linux/amd64 -e CI=true -v "$PWD":/w -w "/w/$dir" \
+            alpine:3 "/w/.tmp/amd64/$bin"
+    done
+
 # Run benchmarks
 bench:
     go test -run=^$ -bench=. -benchmem ./...

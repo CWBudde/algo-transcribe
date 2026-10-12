@@ -16,7 +16,9 @@
 // The GEMM behind [Conv2D] is plain Go, register-blocked so that it stays
 // fast under GOOS=js GOARCH=wasm, where it always runs. On arm64 it is
 // preceded by NEON assembly kernels (dot form over the transposed weights)
-// that cover every basic-pitch layer shape; the Go tiles remain the fallback
-// for other shapes and run everywhere under the purego build tag. There is
-// no cgo, and nothing allocates after setup.
+// that cover every basic-pitch layer shape, and on amd64 by AVX2 kernels with
+// the same coverage when the CPU has AVX2 and FMA (detected at run time). The
+// Go tiles remain the fallback for other shapes and CPUs and run everywhere
+// under the purego build tag. There is no cgo, and nothing allocates after
+// setup.
 package nn

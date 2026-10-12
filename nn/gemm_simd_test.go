@@ -126,6 +126,40 @@ func TestGemmSIMDMatchesGo(t *testing.T) {
 	}
 }
 
+// simdSweepK covers every k%4 and k%8 tail of the SIMD kernels (k >= 4) and
+// every basic-pitch depth. The raw-kernel tests of each architecture use it.
+var simdSweepK = []int{4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 49, 200, 297, 672, 936}
+
+// checkKernelMatchesGo runs a raw SIMD kernel and the 4-wide Go tiles on the
+// same data. They sum in different orders, so they agree to within twice the
+// reference tolerance of checkGemm, not bit for bit.
+func checkKernelMatchesGo(t *testing.T, rng *rand.Rand, name string, f gemmFunc, m, n, k int) {
+	t.Helper()
+
+	a := gemmRandSlice(rng, m*k)
+	wt := gemmRandSlice(rng, n*k)
+	bias := gemmRandSlice(rng, n)
+
+	got := make([]float32, m*n)
+	want := make([]float32, m*n)
+
+	f(got, a, wt, bias, m, k)
+	gemmTiled(want, a, wt, bias, m, k, 4)
+
+	for i := range m {
+		for j := range n {
+			sumAbs := math.Abs(float64(bias[j]))
+			for p := range k {
+				sumAbs += math.Abs(float64(a[i*k+p]) * float64(wt[j*k+p]))
+			}
+
+			if d := math.Abs(float64(got[i*n+j]) - float64(want[i*n+j])); d > 2*(1e-5*sumAbs+1e-6) {
+				t.Fatalf("%s: SIMD out[%d,%d] = %v, Go tiles %v", name, i, j, got[i*n+j], want[i*n+j])
+			}
+		}
+	}
+}
+
 // bpGemmShapes returns (m, n, k) of the gemm calls of the six basic-pitch
 // convolutions (bpLayers): m = blockM, n = cout, k = kh*kw*cin.
 func bpGemmShapes() [][3]int {

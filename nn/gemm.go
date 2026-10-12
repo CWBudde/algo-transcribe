@@ -18,8 +18,10 @@ const blockM = 8
 // included.
 //
 // On arm64 (without the purego tag) gemm first tries the NEON kernels of
-// gemmSIMD, which cover n = 1 and n a multiple of 4 for k >= 4; other shapes
-// fall back to the Go tiles.
+// gemmSIMD, which cover n = 1 and n a multiple of 4 for k >= 4. On amd64 it
+// tries AVX2 kernels with the same coverage, provided the CPU has AVX2 and
+// FMA, which is detected at run time. Other shapes and CPUs fall back to the
+// Go tiles.
 func gemm(out, a, wt, bias []float32, m, k int) {
 	if gemmSIMD(out, a, wt, bias, m, k) {
 		return

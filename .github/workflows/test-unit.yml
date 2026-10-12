@@ -13,8 +13,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # ubuntu-latest is amd64 and runs the Go GEMM tiles; macos-latest is
-        # arm64 and runs the NEON kernels of nn/gemm_arm64.s.
+        # ubuntu-latest is amd64 and runs the AVX2 kernels of nn/gemm_amd64.s;
+        # GitHub Actions sets CI=true, so TestGemmAVX2Selected fails if they
+        # are not taken. macos-latest is arm64 and runs the NEON kernels of
+        # nn/gemm_arm64.s.
         os: [ubuntu-latest, macos-latest]
         go-version: ["1.25.x", "stable"]
     steps:
